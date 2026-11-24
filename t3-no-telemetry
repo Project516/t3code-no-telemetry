@@ -28,13 +28,12 @@ enable() {
       exit 1
     fi
   else
-    local tmp
     tmp=$(mktemp)
+    trap 'rm -f "$tmp"' EXIT
     printf '%s\n' "$policy_json" >"$tmp"
     if command -v t3 >/dev/null; then t3 policy check "$tmp" >/dev/null; fi
     sudo install -D -o root -g root -m 0644 "$tmp" "$policy"
     sudo chmod 0755 "$(dirname "$policy")"
-    rm -f "$tmp"
   fi
 
   # The policy covers the server and desktop app. The env vars are a second layer.
