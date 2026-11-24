@@ -1,0 +1,100 @@
+#!/usr/bin/env bash
+# Turns off T3 Code product analytics and relay tracing on a Linux machine.
+# Usage: t3-no-telemetry [--uninstall]. Safe to rerun. Restart T3 Code afterwards.
+set -euo pipefail
+
+policy=/etc/t3code/policy.json
+dropin="$HOME/.config/systemd/user/t3code.service.d/telemetry.conf"
+marker="# t3-no-telemetry"
+blocked_hosts=(ingest.t3.codes us-east-1.aws.edge.axiom.co)
+shell_rcs=("$HOME/.bashrc" "$HOME/.zshrc")
+
+[ "$(uname -s)" = Linux ] || { echo "Linux only. See the README for macOS and Windows." >&2; exit 1; }
+
+policy_json='{
+  "schemaVersion": 1,
+  "organization": "t3code-no-telemetry",
+  "limits": { "telemetry": false }
+}'
+
+has_service() { systemctl --user cat t3code.service >/dev/null 2>&1; }
+
+enable() {
+  if [ -e "$policy" ]; then
+    if grep -qE '"telemetry"[[:space:]]*:[[:space:]]*false' "$policy"; then
+      echo "$policy already turns telemetry off; leaving it as is."
+    else
+      echo "$policy exists. Add \"telemetry\": false under \"limits\" by hand, then rerun." >&2
+      exit 1
+    fi
+  else
+    local tmp
+    tmp=$(mktemp)
+    printf '%s\n' "$policy_json" >"$tmp"
+    if command -v t3 >/dev/null; then t3 policy check "$tmp" >/dev/null; fi
+    sudo install -D -o root -g root -m 0644 "$tmp" "$policy"
+    sudo chmod 0755 "$(dirname "$policy")"
+    rm -f "$tmp"
+  fi
+
+  # The policy covers the server and desktop app. The env vars are a second layer.
+  if has_service; then
+    mkdir -p "$(dirname "$dropin")"
+    printf '[Service]\nEnvironment=T3CODE_TELEMETRY_ENABLED=false\nEnvironment=T3CODE_OTEL_SDK_DISABLED=true\n' >"$dropin"
+    systemctl --user daemon-reload
+  fi
+
+  # The desktop app reads these from the login shell.
+  for rc in "${shell_rcs[@]}"; do
+    [ -f "$rc" ] || continue
+    grep -qxF "$marker" "$rc" && continue
+    [ -z "$(tail -c1 "$rc")" ] || echo >>"$rc"
+    printf '%s\nexport T3CODE_TELEMETRY_ENABLED=false\nexport T3CODE_OTEL_SDK_DISABLED=true\n' "$marker" >>"$rc"
+  done
+
+  # Browsers ignore the policy and env vars, so block their trace host here.
+  for host in "${blocked_hosts[@]}"; do
+    for addr in 0.0.0.0 ::; do
+      grep -qxF "$addr $host $marker" /etc/hosts ||
+        echo "$addr $host $marker" | sudo tee -a /etc/hosts >/dev/null
+    done
+  done
+
+  echo "Done. Restart T3 Code, then run: t3 policy show"
+}
+
+disable() {
+  if [ -e "$policy" ]; then
+    if [ "$(cat "$policy")" = "$policy_json" ]; then
+      sudo rm "$policy"
+      sudo rmdir "$(dirname "$policy")" 2>/dev/null || true
+    else
+      echo "$policy was not written by this script; leaving it." >&2
+    fi
+  fi
+
+  if [ -e "$dropin" ]; then
+    rm "$dropin"
+    rmdir --ignore-fail-on-non-empty "$(dirname "$dropin")"
+    if has_service; then systemctl --user daemon-reload; fi
+  fi
+
+  for rc in "${shell_rcs[@]}"; do
+    [ -f "$rc" ] && grep -qxF "$marker" "$rc" && sed -i --follow-symlinks "/^$marker\$/,+2d" "$rc"
+  done
+
+  # Rewrite in place: /etc/hosts can be a bind mount, which sed -i cannot replace.
+  if grep -qF " $marker" /etc/hosts; then
+    local kept
+    kept=$(grep -vF " $marker" /etc/hosts)
+    printf '%s\n' "$kept" | sudo tee /etc/hosts >/dev/null
+  fi
+
+  echo "Removed. Restart T3 Code to apply."
+}
+
+case "${1:-}" in
+  "") enable ;;
+  --uninstall) disable ;;
+  *) echo "Usage: $0 [--uninstall]" >&2; exit 2 ;;
+esac
