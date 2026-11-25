@@ -97,11 +97,11 @@ The iOS and Android apps send crash reports and startup timings through the T3 C
 
 Upstream merged these on 2026-11-24 and 2026-11-25, after posts criticizing the telemetry. The released behavior is described in the [v0.1.12 telemetry doc](https://github.com/pingdotgg/t3code/blob/v0.1.12/docs/user/telemetry.md):
 
-- The server no longer reads `~/.codex/auth.json` or `~/.claude.json`, and no longer sends hashed OpenAI or Claude account IDs. In v0.1.11 it read both files at every startup, even with telemetry off, and used them for the event ID ([#42299](https://github.com/pingdotgg/t3code/pull/42299)).
+- The server no longer reads `~/.codex/auth.json` or `~/.claude.json`, and no longer sends hashed OpenAI or Claude account IDs. In v0.1.11 it read both files at every startup, even with telemetry off, and used them for the event ID ([v0.1.11 Identify.ts#L252-L295](https://github.com/pingdotgg/t3code/blob/v0.1.11/apps/server/src/telemetry/Identify.ts#L252-L295)). In v0.1.12 the only file it reads is its own install ID ([v0.1.12 Identify.ts#L102-L141](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/server/src/telemetry/Identify.ts#L102-L141)). Upstream change: [#42299](https://github.com/pingdotgg/t3code/pull/42299).
 - `DO_NOT_TRACK=1` turns analytics and relay traces off ([#42629](https://github.com/pingdotgg/t3code/pull/42629)). CI runners send nothing by default, except a WSL backend started by the Windows desktop app ([#42630](https://github.com/pingdotgg/t3code/pull/42630)).
-- A browser on a page your server serves follows the server's opt-out. In v0.1.11 it always exported relay traces ([#42356](https://github.com/pingdotgg/t3code/pull/42356)).
+- A browser on a page your server serves follows the server's opt-out. In v0.1.11 it always exported relay traces ([v0.1.11 publicConfig.ts#L66-L70](https://github.com/pingdotgg/t3code/blob/v0.1.11/apps/web/src/cloud/publicConfig.ts#L66-L70), [v0.1.12 publicConfig.ts#L73-L79](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/web/src/cloud/publicConfig.ts#L73-L79)). Upstream change: [#42356](https://github.com/pingdotgg/t3code/pull/42356).
 - The mobile app has a **Send connection traces** switch ([#42415](https://github.com/pingdotgg/t3code/pull/42415)).
-- Custom model names are no longer sent ([#42465](https://github.com/pingdotgg/t3code/pull/42465)).
+- Custom model names are no longer sent ([v0.1.12 ProviderDimensions.ts#L64-L71](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/server/src/telemetry/ProviderDimensions.ts#L64-L71)). Upstream change: [#42465](https://github.com/pingdotgg/t3code/pull/42465).
 
 Analytics are still on by default, and Settings still has no switch for them. [PR #42625](https://github.com/pingdotgg/t3code/pull/42625), which adds one, is open.
 
