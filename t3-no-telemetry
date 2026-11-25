@@ -8,6 +8,7 @@ dropin="$HOME/.config/systemd/user/t3code.service.d/telemetry.conf"
 marker="# t3-no-telemetry"
 blocked_hosts=(ingest.t3.codes us-east-1.aws.edge.axiom.co)
 shell_rcs=("$HOME/.bashrc" "$HOME/.zshrc")
+env_vars=(T3CODE_TELEMETRY_ENABLED=false T3CODE_OTEL_SDK_DISABLED=true DO_NOT_TRACK=1)
 
 [ "$(uname -s)" = Linux ] || { echo "Linux only. See the README for macOS and Windows." >&2; exit 1; }
 
@@ -18,6 +19,17 @@ policy_json='{
 }'
 
 has_service() { systemctl --user cat t3code.service >/dev/null 2>&1; }
+
+# Removes the marker line and the exports after it, so blocks from older versions go too.
+strip_rc_block() {
+  local tmp
+  tmp=$(mktemp)
+  awk -v m="$marker" '$0 == m { skip = 1; next }
+    skip && /^export (T3CODE_TELEMETRY_ENABLED|T3CODE_OTEL_SDK_DISABLED|DO_NOT_TRACK)=/ { next }
+    { skip = 0; print }' "$1" >"$tmp"
+  cat "$tmp" >"$1"
+  rm -f "$tmp"
+}
 
 enable() {
   if [ -e "$policy" ]; then
@@ -39,16 +51,16 @@ enable() {
   # The policy covers the server and desktop app. The env vars are a second layer.
   if has_service; then
     mkdir -p "$(dirname "$dropin")"
-    printf '[Service]\nEnvironment=T3CODE_TELEMETRY_ENABLED=false\nEnvironment=T3CODE_OTEL_SDK_DISABLED=true\n' >"$dropin"
+    { echo '[Service]'; printf 'Environment=%s\n' "${env_vars[@]}"; } >"$dropin"
     systemctl --user daemon-reload
   fi
 
-  # The desktop app reads these from the login shell.
+  # The desktop app imports only T3CODE_TELEMETRY_ENABLED and DO_NOT_TRACK from the login shell.
   for rc in "${shell_rcs[@]}"; do
     [ -f "$rc" ] || continue
-    grep -qxF "$marker" "$rc" && continue
+    grep -qxF "$marker" "$rc" && strip_rc_block "$rc"
     [ -z "$(tail -c1 "$rc")" ] || echo >>"$rc"
-    printf '%s\nexport T3CODE_TELEMETRY_ENABLED=false\nexport T3CODE_OTEL_SDK_DISABLED=true\n' "$marker" >>"$rc"
+    { echo "$marker"; printf 'export %s\n' "${env_vars[@]}"; } >>"$rc"
   done
 
   # Browsers ignore the policy and env vars, so block their trace host here.
@@ -79,7 +91,7 @@ disable() {
   fi
 
   for rc in "${shell_rcs[@]}"; do
-    [ -f "$rc" ] && grep -qxF "$marker" "$rc" && sed -i --follow-symlinks "/^$marker\$/,+2d" "$rc"
+    if [ -f "$rc" ] && grep -qxF "$marker" "$rc"; then strip_rc_block "$rc"; fi
   done
 
   # Rewrite in place: /etc/hosts can be a bind mount, which sed -i cannot replace.

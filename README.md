@@ -25,16 +25,18 @@ t3 policy show
 
 The last line should say that the running server loaded the policy.
 
-The script is safe to run more than once. To undo everything it added, run `./t3-no-telemetry --uninstall` and restart T3 Code.
+The script is safe to run more than once, and a rerun updates the shell lines an older version added. To undo everything it added, run `./t3-no-telemetry --uninstall` and restart T3 Code.
 
 ## What the script changes
 
 | Change | Where | What it stops |
 | --- | --- | --- |
 | Managed policy with `"limits": { "telemetry": false }` | `/etc/t3code/policy.json` | Product analytics and relay traces from the server and the desktop app. Environment variables cannot turn them back on. |
-| `T3CODE_TELEMETRY_ENABLED=false` and `T3CODE_OTEL_SDK_DISABLED=true` | systemd drop-in for `t3code.service`, if the service exists | The same, as a second layer. |
-| The same two variables | `~/.bashrc` and `~/.zshrc`, if they exist | The desktop app reads them from your login shell. |
+| `T3CODE_TELEMETRY_ENABLED=false`, `T3CODE_OTEL_SDK_DISABLED=true` and `DO_NOT_TRACK=1` | systemd drop-in for `t3code.service`, if the service exists | The same, as a second layer. |
+| The same three variables | `~/.bashrc` and `~/.zshrc`, if they exist | The same, for the desktop app and for `t3` started from a terminal. The desktop app imports only `T3CODE_TELEMETRY_ENABLED` and `DO_NOT_TRACK` from your login shell ([DesktopShellEnvironment.ts#L125-L126](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/desktop/src/shell/DesktopShellEnvironment.ts#L125-L126)), and either one stops relay traces too. |
 | `0.0.0.0` and `::` entries for `ingest.t3.codes` and `us-east-1.aws.edge.axiom.co` | `/etc/hosts` | Relay traces from a browser on this machine when it uses the hosted web app, or any T3 Code older than v0.1.12. No setting reaches those. |
+
+`DO_NOT_TRACK=1` is a convention shared by many tools, so other programs that honor it stop tracking too.
 
 If `/etc/t3code/policy.json` already exists and does not turn telemetry off, the script stops and asks you to add `"telemetry": false` under `"limits"` yourself. It does not overwrite a policy it did not write.
 
@@ -122,7 +124,7 @@ Policy file contents:
 **macOS**
 
 1. Save the policy as `/Library/Application Support/T3Code/policy.json`, owned by root.
-2. Add `export T3CODE_TELEMETRY_ENABLED=false` and `export T3CODE_OTEL_SDK_DISABLED=true` to `~/.zshrc`.
+2. Add `export T3CODE_TELEMETRY_ENABLED=false` and `export DO_NOT_TRACK=1` to `~/.zshrc`.
 3. Add these lines to `/etc/hosts`:
 
    ```
@@ -137,7 +139,7 @@ Policy file contents:
 **Windows**
 
 1. Save the policy as `C:\Program Files\T3Code\policy.json`.
-2. Set `T3CODE_TELEMETRY_ENABLED=false` and `T3CODE_OTEL_SDK_DISABLED=true` as user environment variables.
+2. Set `T3CODE_TELEMETRY_ENABLED=false` and `DO_NOT_TRACK=1` as user environment variables.
 3. Add the same four lines to `C:\Windows\System32\drivers\etc\hosts`.
 4. Quit and reopen T3 Code.
 
@@ -149,7 +151,7 @@ T3 Code refuses to start if it finds both a native policy (a macOS profile or Wi
 - On Linux, the server process has the variables:
 
   ```sh
-  tr '\0' '\n' < "/proc/$(pgrep -f 't3 serve' | head -1)/environ" | grep -E 'T3CODE_TELEMETRY|OTEL_SDK'
+  tr '\0' '\n' < "/proc/$(pgrep -f 't3 serve' | head -1)/environ" | grep -E 'T3CODE_TELEMETRY|OTEL_SDK|DO_NOT_TRACK'
   ```
 
 - `getent hosts ingest.t3.codes` prints `::`.
