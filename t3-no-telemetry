@@ -8,6 +8,7 @@ dropin="$HOME/.config/systemd/user/t3code.service.d/telemetry.conf"
 marker="# t3-no-telemetry"
 blocked_hosts=(ingest.t3.codes us-east-1.aws.edge.axiom.co)
 shell_rcs=("$HOME/.bashrc" "$HOME/.zshrc")
+env_vars=(T3CODE_TELEMETRY_ENABLED=false T3CODE_OTEL_SDK_DISABLED=true DO_NOT_TRACK=1)
 
 [ "$(uname -s)" = Linux ] || { echo "Linux only. See the README for macOS and Windows." >&2; exit 1; }
 
@@ -18,6 +19,31 @@ policy_json='{
 }'
 
 has_service() { systemctl --user cat t3code.service >/dev/null 2>&1; }
+
+# Removes the block between the markers, and the two-line block older versions wrote without an end marker.
+strip_rc_block() {
+  local tmp
+  tmp=$(mktemp)
+  awk -v m="$marker" -v n="${#env_vars[@]}" '{ l[NR] = $0 }
+    END {
+      for (i = 1; i <= NR; i++) {
+        if (l[i] == m && l[i + n + 1] == m " end") { i += n + 1; continue }
+        if (l[i] == m && l[i + 1] == "export T3CODE_TELEMETRY_ENABLED=false" &&
+          l[i + 2] == "export T3CODE_OTEL_SDK_DISABLED=true") { i += 2; continue }
+        print l[i]
+      }
+    }' "$1" >"$tmp"
+  cat "$tmp" >"$1"
+  rm -f "$tmp"
+}
+
+# With cloud-init managing /etc/hosts, it rewrites the file from the template named in its header at every boot.
+hosts_files() {
+  echo /etc/hosts
+  local tmpl
+  tmpl=$(grep -oE '/etc/cloud/templates/hosts\.[a-z0-9]+\.tmpl' /etc/hosts | head -1) || true
+  if [ -n "$tmpl" ] && [ -f "$tmpl" ]; then echo "$tmpl"; fi
+}
 
 enable() {
   if [ -e "$policy" ]; then
@@ -39,25 +65,29 @@ enable() {
   # The policy covers the server and desktop app. The env vars are a second layer.
   if has_service; then
     mkdir -p "$(dirname "$dropin")"
-    printf '[Service]\nEnvironment=T3CODE_TELEMETRY_ENABLED=false\nEnvironment=T3CODE_OTEL_SDK_DISABLED=true\n' >"$dropin"
+    { echo '[Service]'; printf 'Environment=%s\n' "${env_vars[@]}"; } >"$dropin"
     systemctl --user daemon-reload
   fi
 
-  # The desktop app reads these from the login shell.
+  # The desktop app imports only T3CODE_TELEMETRY_ENABLED and DO_NOT_TRACK from the login shell.
   for rc in "${shell_rcs[@]}"; do
     [ -f "$rc" ] || continue
-    grep -qxF "$marker" "$rc" && continue
+    grep -qxF "$marker" "$rc" && strip_rc_block "$rc"
     [ -z "$(tail -c1 "$rc")" ] || echo >>"$rc"
-    printf '%s\nexport T3CODE_TELEMETRY_ENABLED=false\nexport T3CODE_OTEL_SDK_DISABLED=true\n' "$marker" >>"$rc"
+    { echo "$marker"; printf 'export %s\n' "${env_vars[@]}"; echo "$marker end"; } >>"$rc"
   done
 
   # Browsers ignore the policy and env vars, so block their trace host here.
-  for host in "${blocked_hosts[@]}"; do
-    for addr in 0.0.0.0 ::; do
-      grep -qxF "$addr $host $marker" /etc/hosts ||
-        echo "$addr $host $marker" | sudo tee -a /etc/hosts >/dev/null
+  local f host addr
+  while read -r f; do
+    [ -z "$(tail -c1 "$f")" ] || echo | sudo tee -a "$f" >/dev/null
+    for host in "${blocked_hosts[@]}"; do
+      for addr in 0.0.0.0 ::; do
+        grep -qxF "$addr $host $marker" "$f" ||
+          echo "$addr $host $marker" | sudo tee -a "$f" >/dev/null
+      done
     done
-  done
+  done < <(hosts_files)
 
   echo "Done. Restart T3 Code, then run: t3 policy show"
 }
@@ -79,15 +109,19 @@ disable() {
   fi
 
   for rc in "${shell_rcs[@]}"; do
-    [ -f "$rc" ] && grep -qxF "$marker" "$rc" && sed -i --follow-symlinks "/^$marker\$/,+2d" "$rc"
+    if [ -f "$rc" ] && grep -qxF "$marker" "$rc"; then strip_rc_block "$rc"; fi
   done
 
-  # Rewrite in place: /etc/hosts can be a bind mount, which sed -i cannot replace.
-  if grep -qF " $marker" /etc/hosts; then
-    local kept
-    kept=$(grep -vF " $marker" /etc/hosts)
-    printf '%s\n' "$kept" | sudo tee /etc/hosts >/dev/null
-  fi
+  # cp writes into the existing file: /etc/hosts can be a bind mount, which sed -i cannot replace.
+  local f kept
+  kept=$(mktemp)
+  while read -r f; do
+    if grep -qF " $marker" "$f"; then
+      grep -vF " $marker" "$f" >"$kept"
+      sudo cp "$kept" "$f"
+    fi
+  done < <(hosts_files)
+  rm -f "$kept"
 
   echo "Removed. Restart T3 Code to apply."
 }
