@@ -34,9 +34,9 @@ The script is safe to run more than once, and a rerun updates the shell lines an
 | Managed policy with `"limits": { "telemetry": false }` | `/etc/t3code/policy.json` | Product analytics and relay traces from the server and the desktop app. Environment variables cannot turn them back on. |
 | `T3CODE_TELEMETRY_ENABLED=false`, `T3CODE_OTEL_SDK_DISABLED=true` and `DO_NOT_TRACK=1` | systemd drop-in for `t3code.service`, if the service exists | The same, as a second layer. |
 | The same three variables | `~/.bashrc` and `~/.zshrc`, if they exist | The same, for the desktop app and for `t3` started from a terminal. The desktop app imports only `T3CODE_TELEMETRY_ENABLED` and `DO_NOT_TRACK` from your login shell ([DesktopShellEnvironment.ts#L125-L126](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/desktop/src/shell/DesktopShellEnvironment.ts#L125-L126)), and either one stops relay traces too. |
-| `0.0.0.0` and `::` entries for `ingest.t3.codes` and `us-east-1.aws.edge.axiom.co` | `/etc/hosts` | Relay traces from a browser on this machine when it uses the hosted web app, or any T3 Code older than v0.1.12. No setting reaches those. |
+| `0.0.0.0` and `::` entries for `ingest.t3.codes` and `us-east-1.aws.edge.axiom.co` | `/etc/hosts`, and the cloud-init hosts template when cloud-init manages `/etc/hosts` | Relay traces from a browser on this machine when it uses the hosted web app, or any T3 Code older than v0.1.12. No setting reaches those. |
 
-`DO_NOT_TRACK=1` is a convention shared by many tools, so other programs that honor it stop tracking too.
+Raspberry Pi OS and many cloud images let cloud-init rewrite `/etc/hosts` from a template at every boot ([cc_update_etc_hosts.py#L17-L23](https://github.com/canonical/cloud-init/blob/25.2/cloudinit/config/cc_update_etc_hosts.py#L17-L23)). When the header of `/etc/hosts` names that template, the script adds the same lines to it, so the block survives a reboot.
 
 If `/etc/t3code/policy.json` already exists and does not turn telemetry off, the script stops and asks you to add `"telemetry": false` under `"limits"` yourself. It does not overwrite a policy it did not write.
 
