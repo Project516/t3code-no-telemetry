@@ -2,7 +2,7 @@
 
 [T3 Code](https://github.com/pingdotgg/t3code) sends product analytics by default, and its Settings page has no switch to turn them off. This repo turns them off with T3 Code's own configuration: a managed policy file, environment variables and a hosts file block. You keep the official builds and updates. Nothing is forked or patched.
 
-The findings below were checked against the source at tag [`v0.1.11`](https://github.com/pingdotgg/t3code/tree/v0.1.11) and against `main` on 2026-11-24.
+The findings below were checked against the source at tag [`v0.1.12`](https://github.com/pingdotgg/t3code/tree/v0.1.12), released 2026-11-25. See [Changes in v0.1.12](#changes-in-v0112) for what upstream changed after the November 2026 criticism.
 
 ## Quick start (Linux)
 
@@ -34,7 +34,7 @@ The script is safe to run more than once. To undo everything it added, run `./t3
 | Managed policy with `"limits": { "telemetry": false }` | `/etc/t3code/policy.json` | Product analytics and relay traces from the server and the desktop app. Environment variables cannot turn them back on. |
 | `T3CODE_TELEMETRY_ENABLED=false` and `T3CODE_OTEL_SDK_DISABLED=true` | systemd drop-in for `t3code.service`, if the service exists | The same, as a second layer. |
 | The same two variables | `~/.bashrc` and `~/.zshrc`, if they exist | The desktop app reads them from your login shell. |
-| `0.0.0.0` and `::` entries for `ingest.t3.codes` and `us-east-1.aws.edge.axiom.co` | `/etc/hosts` | Relay traces from a browser on this machine. No setting reaches those. |
+| `0.0.0.0` and `::` entries for `ingest.t3.codes` and `us-east-1.aws.edge.axiom.co` | `/etc/hosts` | Relay traces from a browser on this machine when it uses the hosted web app, or any T3 Code older than v0.1.12. No setting reaches those. |
 
 If `/etc/t3code/policy.json` already exists and does not turn telemetry off, the script stops and asks you to add `"telemetry": false` under `"limits"` yourself. It does not overwrite a policy it did not write.
 
@@ -44,29 +44,37 @@ The policy sets the organization name to `t3code-no-telemetry`. Settings shows "
 
 ### Product analytics
 
-The server buffers events and sends a batch every 10 seconds to `https://ingest.t3.codes/batch/` ([AnalyticsService.ts#L43](https://github.com/pingdotgg/t3code/blob/v0.1.11/apps/server/src/telemetry/AnalyticsService.ts#L43), [#L66-L80](https://github.com/pingdotgg/t3code/blob/v0.1.11/apps/server/src/telemetry/AnalyticsService.ts#L66-L80)). The code comment at the top of that file says the ingest server keeps each event and forwards it to PostHog. Telemetry is on unless `T3CODE_TELEMETRY_ENABLED` is false or a managed policy turns it off.
+Analytics are on by default, and Settings still has no switch for them. The server buffers events and sends a batch every 10 seconds to `https://ingest.t3.codes/batch/` ([AnalyticsService.ts#L46](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/server/src/telemetry/AnalyticsService.ts#L46), [#L70-L75](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/server/src/telemetry/AnalyticsService.ts#L70-L75)). The code comment at the top of that file says the ingest server keeps each event and forwards it to PostHog.
 
-Events include server heartbeats, thread and turn starts, completed provider requests, MCP tool calls, delegated tasks and feature use (for example fork, archive, pin and rollback). Each event carries the OS, CPU architecture, WSL distro name, T3 Code version, release channel and server mode ([#L199-L230](https://github.com/pingdotgg/t3code/blob/v0.1.11/apps/server/src/telemetry/AnalyticsService.ts#L199-L230)). The [upstream telemetry doc](https://github.com/pingdotgg/t3code/blob/v0.1.11/docs/user/telemetry.md) lists the provider, model, reasoning effort, permission mode, results, durations and token counts. It says prompts, responses, file contents and tokens are not sent.
+Analytics stay off when any of these is true ([#L130-L144](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/server/src/telemetry/AnalyticsService.ts#L130-L144)):
+
+- A managed policy sets `telemetry: false`.
+- `T3CODE_TELEMETRY_ENABLED=false` is set.
+- `DO_NOT_TRACK=1` is set.
+- The server runs on a CI runner (`CI`, `GITHUB_ACTIONS` and similar), unless `T3CODE_TELEMETRY_ENABLED=true`.
+
+Events include server heartbeats, thread and turn starts, completed provider requests, MCP tool calls, delegated tasks and feature use (for example fork, archive, pin and rollback). Each event carries the OS, CPU architecture, WSL distro name, T3 Code version, release channel and server mode ([#L209-L241](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/server/src/telemetry/AnalyticsService.ts#L209-L241)). The [upstream telemetry doc](https://github.com/pingdotgg/t3code/blob/v0.1.12/docs/user/telemetry.md) lists the provider, model, reasoning effort, permission mode, results, durations and token counts. A model that is not in a provider's public catalog is reported as `custom:<provider>`, not by name ([ProviderDimensions.ts#L64-L71](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/server/src/telemetry/ProviderDimensions.ts#L64-L71)).
 
 ### Identifiers
 
-At startup the server reads `~/.codex/auth.json` and `~/.claude.json` ([Identify.ts#L252-L271](https://github.com/pingdotgg/t3code/blob/v0.1.11/apps/server/src/telemetry/Identify.ts#L252-L271)). It also creates a random install ID in `~/.t3/userdata/anonymous-id`.
+- Every event carries a hash of a random install ID kept in `~/.t3/userdata/anonymous-id` ([Identify.ts#L140](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/server/src/telemetry/Identify.ts#L140)).
+- An `install.owner_observed` event reports a hash of your T3 Connect account ID when the server is linked to one ([#L151-L164](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/server/src/telemetry/Identify.ts#L151-L164)). Connecting clients add a device ID.
 
-- The event `distinct_id` is the Codex workspace ID or the Claude `userID`, falling back to the install ID ([#L279-L295](https://github.com/pingdotgg/t3code/blob/v0.1.11/apps/server/src/telemetry/Identify.ts#L279-L295)).
-- An `install.owner_observed` event reports the T3 Connect account, the OpenAI account ID from the Codex login, and the Claude `accountUuid` ([#L307-L339](https://github.com/pingdotgg/t3code/blob/v0.1.11/apps/server/src/telemetry/Identify.ts#L307-L339)). Connecting clients add a device ID.
+The hashes are plain SHA-256 with no salt ([telemetryId.ts#L8-L9](https://github.com/pingdotgg/t3code/blob/v0.1.12/packages/shared/src/telemetryId.ts#L8-L9)). T3 can match the Connect account hash to the account, since it has the raw ID.
 
-Every one of these IDs is a plain SHA-256 hash with no salt ([telemetryId.ts#L8-L9](https://github.com/pingdotgg/t3code/blob/v0.1.11/packages/shared/src/telemetryId.ts#L8-L9)). Anyone who already has the raw ID can compute the same hash and match it.
+### Agent feedback
 
-The files are read even when telemetry is off ([AnalyticsService.ts#L148](https://github.com/pingdotgg/t3code/blob/v0.1.11/apps/server/src/telemetry/AnalyticsService.ts#L148)). With telemetry off, the hashes are not sent.
+v0.1.12 adds agent feedback: agents can report problems with T3 Code to the T3 team. It is off by default under **Settings > Labs > Agent feedback**. Reports are sent as analytics events ([FeedbackStore.ts#L201-L208](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/server/src/feedback/FeedbackStore.ts#L201-L208)), so the policy and variables above stop them too. With telemetry off, reports stay on the machine.
 
 ### Relay traces
 
 T3 Code sends OpenTelemetry traces for T3 Connect connections to Axiom. The release server and web builds include the Axiom endpoint, and the web build also includes an ingest token.
 
-- **Server.** It stops when a policy sets `telemetry: false` ([relayTracing.ts#L25](https://github.com/pingdotgg/t3code/blob/v0.1.11/apps/server/src/cloud/relayTracing.ts#L25)), or when `T3CODE_TELEMETRY_ENABLED=false` or `T3CODE_OTEL_SDK_DISABLED=true` is set.
-- **Desktop app window.** It asks the desktop app, which checks the same policy and variables ([window.ts#L85-L112](https://github.com/pingdotgg/t3code/blob/v0.1.11/apps/desktop/src/ipc/methods/window.ts#L85-L112)).
-- **Browser.** It always exports when the build has the Axiom config, which release builds do ([publicConfig.ts#L66-L70](https://github.com/pingdotgg/t3code/blob/v0.1.11/apps/web/src/cloud/publicConfig.ts#L66-L70)). This includes the web app the `t3` CLI opens and the page your server serves. The only way to stop it is to block the host on the machine running the browser.
-- **Mobile app.** It has no switch.
+- **Server.** It stops when a policy sets `telemetry: false`, or when `T3CODE_TELEMETRY_ENABLED=false`, `DO_NOT_TRACK=1` or `T3CODE_OTEL_SDK_DISABLED=true` is set ([relayTracing.ts#L21-L27](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/server/src/cloud/relayTracing.ts#L21-L27)).
+- **Desktop app window.** It asks the desktop app, which checks the same policy and variables.
+- **Browser on a page your server serves.** It exports only when that server allows relay tracing ([publicConfig.ts#L73-L79](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/web/src/cloud/publicConfig.ts#L73-L79)), so the server's policy covers it.
+- **Hosted web app** (`app.t3.codes`). It always exports when its build has the Axiom config. No setting reaches it. Block the host to stop it.
+- **Mobile app.** Turn off **Send connection traces** in **Settings > About T3 Code > Diagnostics**. The server's policy and variables do not reach the phone.
 
 ### Mobile crash reports
 
@@ -74,10 +82,9 @@ The iOS and Android apps send crash reports and startup timings through the T3 C
 
 ## What this repo cannot turn off
 
-- **Mobile relay traces.** The phone app has no switch, and the policy and variables do not reach it. A DNS blocking service on the phone that blocks `us-east-1.aws.edge.axiom.co` should stop them, but this repo does not test that.
-- **Browsers on other devices.** The hosts block only covers the machine you run the script on. Run it on each computer you open T3 Code in, or block the two hosts on your network's DNS.
+- **The phone app.** Use its two switches, described above.
+- **The hosted web app on other devices.** The hosts block only covers the machine you run the script on. Run the script on each computer where you use `app.t3.codes`, or block the two hosts on your network's DNS.
 - **The T3 Connect relay itself.** If you connect through `relay.t3.codes`, the relay sees your IP address and connection metadata. That is how the feature works. To avoid it, connect directly over your LAN or a VPN.
-- **Local reads of login files.** The server still reads `~/.claude.json` and `~/.codex/auth.json` at startup. Nothing is sent while telemetry is off.
 - **New hosts in later versions.** The hosts block names the two hosts used today. The policy does not depend on host names, so the server and desktop app stay covered. Recheck the browser config after major updates:
 
   ```sh
@@ -86,9 +93,21 @@ The iOS and Android apps send crash reports and startup timings through the T3 C
 
 **Publish agent activity** (**Settings > Sharing & access**) sends project and thread titles to the relay for phone notifications. It is a feature, not telemetry, and has its own switch.
 
+## Changes in v0.1.12
+
+Upstream merged these on 2026-11-24 and 2026-11-25, after posts criticizing the telemetry:
+
+- The server no longer reads `~/.codex/auth.json` or `~/.claude.json`, and no longer sends hashed OpenAI or Claude account IDs. In v0.1.11 it read both files at every startup, even with telemetry off, and used them for the event ID ([#42299](https://github.com/pingdotgg/t3code/pull/42299)).
+- `DO_NOT_TRACK=1` turns analytics and relay traces off ([#42629](https://github.com/pingdotgg/t3code/pull/42629)). CI runners send nothing by default ([#42630](https://github.com/pingdotgg/t3code/pull/42630)).
+- A browser on a page your server serves follows the server's opt-out. In v0.1.11 it always exported relay traces ([#42356](https://github.com/pingdotgg/t3code/pull/42356)).
+- The mobile app has a **Send connection traces** switch ([#42415](https://github.com/pingdotgg/t3code/pull/42415)).
+- Custom model names are no longer sent ([#42465](https://github.com/pingdotgg/t3code/pull/42465)).
+
+Analytics are still on by default, and Settings still has no switch for them. [PR #42625](https://github.com/pingdotgg/t3code/pull/42625), which adds one, is open.
+
 ## macOS and Windows
 
-The script is Linux only. On other systems, do the same steps by hand. The policy file paths come from the upstream [managed policy doc](https://github.com/pingdotgg/t3code/blob/v0.1.11/docs/user/managed-policy.md).
+The script is Linux only. On other systems, do the same steps by hand. The policy file paths come from the upstream [managed policy doc](https://github.com/pingdotgg/t3code/blob/v0.1.12/docs/user/managed-policy.md).
 
 Policy file contents:
 
