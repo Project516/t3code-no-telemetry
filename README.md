@@ -51,13 +51,13 @@ Analytics stay off when any of these is true ([#L130-L144](https://github.com/pi
 - A managed policy sets `telemetry: false`.
 - `T3CODE_TELEMETRY_ENABLED=false` is set.
 - `DO_NOT_TRACK=1` is set.
-- The server runs on a CI runner (`CI`, `GITHUB_ACTIONS` and similar), unless `T3CODE_TELEMETRY_ENABLED=true`.
+- The server runs on a CI runner (`CI`, `GITHUB_ACTIONS` and similar), unless `T3CODE_TELEMETRY_ENABLED=true`. A WSL backend started by the Windows desktop app on CI does not get the CI variables, so set an opt-out there yourself.
 
-Events include server heartbeats, thread and turn starts, completed provider requests, MCP tool calls, delegated tasks and feature use (for example fork, archive, pin and rollback). Each event carries the OS, CPU architecture, WSL distro name, T3 Code version, release channel and server mode ([#L209-L241](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/server/src/telemetry/AnalyticsService.ts#L209-L241)). The [upstream telemetry doc](https://github.com/pingdotgg/t3code/blob/v0.1.12/docs/user/telemetry.md) lists the provider, model, reasoning effort, permission mode, results, durations and token counts. A model that is not in a provider's public catalog is reported as `custom:<provider>`, not by name ([ProviderDimensions.ts#L64-L71](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/server/src/telemetry/ProviderDimensions.ts#L64-L71)).
+Events include server heartbeats, thread and turn starts, completed provider requests, MCP tool calls, delegated tasks and feature use (for example fork, archive, pin and rollback). Each event carries the T3 Code version and release channel. All events except anonymous ones (agent feedback) also carry the OS, CPU architecture, WSL distro name and server mode ([#L209-L241](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/server/src/telemetry/AnalyticsService.ts#L209-L241)). The [upstream telemetry doc](https://github.com/pingdotgg/t3code/blob/v0.1.12/docs/user/telemetry.md) lists the provider, model, reasoning effort, permission mode, results, durations and token counts. A model that is not in a provider's public catalog is reported as `custom:<provider>`, not by name ([ProviderDimensions.ts#L64-L71](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/server/src/telemetry/ProviderDimensions.ts#L64-L71)).
 
 ### Identifiers
 
-- Every event carries a hash of a random install ID kept in `~/.t3/userdata/anonymous-id` ([Identify.ts#L140](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/server/src/telemetry/Identify.ts#L140)).
+- Every event except anonymous ones carries a hash of a random install ID kept in `~/.t3/userdata/anonymous-id` ([Identify.ts#L140](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/server/src/telemetry/Identify.ts#L140)).
 - An `install.owner_observed` event reports a hash of your T3 Connect account ID when the server is linked to one ([#L151-L164](https://github.com/pingdotgg/t3code/blob/v0.1.12/apps/server/src/telemetry/Identify.ts#L151-L164)). Connecting clients add a device ID.
 
 The hashes are plain SHA-256 with no salt ([telemetryId.ts#L8-L9](https://github.com/pingdotgg/t3code/blob/v0.1.12/packages/shared/src/telemetryId.ts#L8-L9)). T3 can match the Connect account hash to the account, since it has the raw ID.
@@ -95,10 +95,10 @@ The iOS and Android apps send crash reports and startup timings through the T3 C
 
 ## Changes in v0.1.12
 
-Upstream merged these on 2026-11-24 and 2026-11-25, after posts criticizing the telemetry:
+Upstream merged these on 2026-11-24 and 2026-11-25, after posts criticizing the telemetry. The released behavior is described in the [v0.1.12 telemetry doc](https://github.com/pingdotgg/t3code/blob/v0.1.12/docs/user/telemetry.md):
 
 - The server no longer reads `~/.codex/auth.json` or `~/.claude.json`, and no longer sends hashed OpenAI or Claude account IDs. In v0.1.11 it read both files at every startup, even with telemetry off, and used them for the event ID ([#42299](https://github.com/pingdotgg/t3code/pull/42299)).
-- `DO_NOT_TRACK=1` turns analytics and relay traces off ([#42629](https://github.com/pingdotgg/t3code/pull/42629)). CI runners send nothing by default ([#42630](https://github.com/pingdotgg/t3code/pull/42630)).
+- `DO_NOT_TRACK=1` turns analytics and relay traces off ([#42629](https://github.com/pingdotgg/t3code/pull/42629)). CI runners send nothing by default, except a WSL backend started by the Windows desktop app ([#42630](https://github.com/pingdotgg/t3code/pull/42630)).
 - A browser on a page your server serves follows the server's opt-out. In v0.1.11 it always exported relay traces ([#42356](https://github.com/pingdotgg/t3code/pull/42356)).
 - The mobile app has a **Send connection traces** switch ([#42415](https://github.com/pingdotgg/t3code/pull/42415)).
 - Custom model names are no longer sent ([#42465](https://github.com/pingdotgg/t3code/pull/42465)).
